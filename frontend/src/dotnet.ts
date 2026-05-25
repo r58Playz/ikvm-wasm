@@ -13,51 +13,56 @@ export let dotnetState = createState({
 
 console.log = new Proxy(console.log, {
 	apply(target, thisArg, argArray) {
-	    dotnetState.logs = [...dotnetState.logs, argArray.join(" ")];
+		dotnetState.logs = [...dotnetState.logs, argArray.join(" ")];
 		return Reflect.apply(target, thisArg, argArray);
 	},
 })
 
-const rootFolder = await navigator.storage.getDirectory();
-(globalThis as any).selectjar = async () => {
-	let [file] = await showOpenFilePicker();
-	const data = await file.getFile().then((r) => r.stream());
-	let handle = await rootFolder.getFileHandle("main.jar", { create: true });
-	const writable = await handle.createWritable();
-	await data.pipeTo(writable);
-}
-
-export async function initDotnet(canvas: HTMLCanvasElement) {
+let DEFAULT_JARS = ["/assets/log4j-demo.jar"];
+let hackfixtimer = -1;
+export async function initDotnet() {
 	console.time("dotnet ");
 	runtime = await dotnet
 		.withConfig({ pthreadPoolInitialSize: 16 })
-		/*
-		.withEnvironmentVariable("MONO_LOG_LEVEL", "debug")
-		.withEnvironmentVariable("MONO_LOG_MASK", "all")
-		.withEnvironmentVariable("IKVM_DISABLE_STACKTRACE_CLEANING", "true")
-		*/
+		.withModuleConfig({
+			onRuntimeInitialized(Module: any) {
+				(globalThis as any).wasm = { Module, FS: Module.FS };
+				hackfixtimer = setInterval(() => Module.checkMailbox(), 4);
+			}
+		})
+		.withEnvironmentVariable("MONO_SLEEP_ABORT_LIMIT", "20000")
+		//.withEnvironmentVariable("MONO_LOG_LEVEL", "debug")
+		//.withEnvironmentVariable("MONO_LOG_MASK", "gc")
+		//.withEnvironmentVariable("MONO_LOG_MASK", "aot")
+		.withEnvironmentVariable("MONO_GC_PARAMS", "nursery-size=16m")
+		//.withEnvironmentVariable("IKVM_FROMCLASS_TRACE", "1")
+		//.withEnvironmentVariable("IKVM_UNSAFE_OFFSET_TRACE", "1")
 		.withRuntimeOptions([
-			// jit functions quickly and jit more functions
-			`--jiterpreter-minimum-trace-hit-count=${500}`,
-
-			// monitor jitted functions for less time
-			`--jiterpreter-trace-monitoring-period=${100}`,
-
-			// reject less funcs
-			`--jiterpreter-trace-monitoring-max-average-penalty=${150}`,
+			// accept smaller traces earlier
+			`--jiterpreter-minimum-trace-value=${10}`,
+			`--jiterpreter-minimum-trace-hit-count=${1000}`,
+			`--jiterpreter-back-branch-boost=${980}`, // make sure this is below trace hit count
+			`--jiterpreter-minimum-distance-between-traces=${3}`,
+			`--jiterpreter-trace-monitoring-period=${500}`,
+			`--jiterpreter-trace-monitoring-max-average-penalty=${50}`,
 
 			// increase jit function limits
 			`--jiterpreter-wasm-bytes-limit=${64 * 1024 * 1024}`,
+			`--jiterpreter-max-module-size=${64 * 1024 - 1}`,
 			`--jiterpreter-table-size=${32 * 1024}`,
 
 			// print jit stats
 			`--jiterpreter-stats-enabled`,
+
+			//`--no-jiterpreter-jit-call-enabled`,
+			//`--no-jiterpreter-interp-entry-enabled`,
+
+			//`--no-jiterpreter-traces-enabled`
 		])
 		.create();
 
 	config = runtime.getConfig();
 	exports = await runtime.getAssemblyExports(config.mainAssemblyName!);
-	(runtime.Module as any).canvas = canvas;
 
 	(globalThis as any).wasm = {
 		Module: runtime.Module,
@@ -66,19 +71,17 @@ export async function initDotnet(canvas: HTMLCanvasElement) {
 		runtime,
 		config,
 		exports,
-		canvas,
 	};
 	console.debug("PreInit...");
 	await runtime.runMain();
-	await exports.IkvmWasm.PreInit(location.href, [["org.lwjgl.util.Debug", "true"], ["renderDistanceChunks", "2"]]);
+	await exports.IkvmWasm.PreInit(location.href, DEFAULT_JARS, []);
 	console.debug("dotnet initialized");
 	console.timeEnd("dotnet ");
+	setTimeout(() => clearInterval(hackfixtimer), 10 * 1000);
 }
 
 export async function play() {
-	console.debug("Run...");
-	await exports.IkvmWasm.Run("/assets/lwjgl3-demos.jar", "org.lwjgl.demo.game.VoxelGameGL");
-	//await exports.IkvmWasm.Run("/assets/lwjgl3-demos.jar", "org.lwjgl.demo.opengl.camera.FreeCameraDemo");
-	//await exports.IkvmWasm.Run("/assets/lwjgl3-demos.jar", "org.lwjgl.demo.opengl.shadow.ShadowMappingDemo20");
+	console.debug("RunJar...");
+	await exports.IkvmWasm.RunJar(DEFAULT_JARS[0], null);
 	console.debug("Exited");
 }

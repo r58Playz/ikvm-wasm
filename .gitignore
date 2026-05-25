@@ -1,6 +1,12 @@
 /loader/bin
 /loader/obj
+/loader/Generated.targets
+/loader/ikvmc-manifest.g.json
+/aotprofile/bin
+/aotprofile/obj
+
 /statics
 /frontend/public/image
-/jars/*.dll
-/jars/*.pdb
+/frontend/public/_framework
+/jars/*
+!/jars/.gitkeep

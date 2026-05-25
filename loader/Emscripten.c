@@ -7,12 +7,6 @@
 #include <string.h>
 #include <sys/stat.h>
 
-extern void mobileglues_proc_init();
-void mg_init() {
-	setenv("MG_DIR_PATH", "/mobileglues", true);
-	mobileglues_proc_init();
-}
-
 extern int managed_em_loop_callback(void);
 
 static void em_loop_wrapper() {
