@@ -23,7 +23,7 @@ function proxyConsole(name: string, color: string) {
 		} catch {
 			str = "<failed to render>";
 		}
-		if (str.includes("maybeExit:") || str.includes("runtimeKeepalive"))return;
+		if (str.includes("maybeExit:") || str.includes("runtimeKeepalive")) return;
 		old(...args);
 		for (const logger of loglisteners) {
 			logger({ color, log: str });
@@ -39,6 +39,64 @@ export const bypassInfo = proxyConsole("info", "var(--info)");
 export const bypassDebug = proxyConsole("debug", "var(--fg4)");
 (globalThis as any).bypassLog = bypassLog;
 
+async function joinSplit(baseUri: string) {
+	let idx = 0;
+
+	let fetchNext = async () => {
+		let res = await fetch(baseUri + idx);
+		idx++;
+		if (!res.body) throw new Error("no body in fetch response");
+		return res.status === 200 && !(res.headers.get("content-type") || "").includes("text/html")
+			? res.body.getReader()
+			: null;
+	};
+
+	let chunk = await fetchNext();
+	if (!chunk) throw new Error("failed to fetch first chunk");
+	let currentStream: ReadableStreamDefaultReader<Uint8Array> = chunk;
+
+	let stream = new ReadableStream({
+		async pull(controller) {
+			let { value, done } = await currentStream.read();
+			if (done || !value) {
+				chunk = await fetchNext();
+
+				if (chunk) {
+					currentStream = chunk;
+					await this.pull!(controller);
+				} else {
+					controller.close();
+				}
+			} else {
+				controller.enqueue(value);
+			}
+		},
+	});
+
+	return stream;
+}
+
+async function resourceLoader(defaultUri: string, contentType: string) {
+	let stream = await joinSplit(defaultUri);
+	let res = new Response(stream, {
+		headers: new Headers({ "Content-Type": contentType }),
+	});
+	return res;
+}
+
+export async function maybeDownloadRtJar() {
+	let dir = await navigator.storage.getDirectory();
+	try {
+		await dir.getFileHandle("rt.jar", { create: false });
+		return;
+	} catch { }
+	console.debug("downloading rt.jar");
+	let file = await dir.getFileHandle("rt.jar", { create: true });
+	let writable = await file.createWritable();
+	let stream = await joinSplit("/assets/rt.jar");
+	await stream.pipeTo(writable);
+}
+
 export async function initDotnet() {
 	// emscripten proxy hackfix number 39847232303
 	(globalThis as any).Atomics.waitAsync = undefined;
@@ -46,6 +104,14 @@ export async function initDotnet() {
 	console.time("dotnet ");
 	runtime = await dotnet
 		.withConfig({ pthreadPoolInitialSize: 4 })
+		.withResourceLoader((type, _name, defaultUri, _integrity, behavior) => {
+			// since aot'd wasm and ikvm.java are >20mb
+			if (type === "dotnetwasm" && behavior === "dotnetwasm") {
+				return resourceLoader(defaultUri, "application/wasm")
+			} else if (type === "assembly" && behavior === "assembly" && defaultUri.includes("IKVM.Java.")) {
+				return resourceLoader(defaultUri, "application/octet-stream");
+			}
+		})
 		.withModuleConfig({
 			onRuntimeInitialized(Module: any) {
 				(globalThis as any).wasm = { Module, FS: Module.FS };

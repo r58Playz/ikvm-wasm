@@ -1,6 +1,6 @@
 import { css, FC } from "dreamland/core";
 import "./style.css";
-import { initDotnet, runJava } from "./dotnet";
+import { initDotnet, maybeDownloadRtJar, runJava } from "./dotnet";
 import { LogView } from "./logs";
 import { Monaco } from "./monaco";
 
@@ -31,7 +31,7 @@ function App(this: FC<{}, { value: string, ready: boolean }>) {
 	this.value = DEFAULT_CODE;
 	this.cx.mount = async () => {
 		console.debug("initializing dotnet");
-		await initDotnet();
+		await Promise.all([initDotnet(), maybeDownloadRtJar()]);
 		this.ready = true;
 	};
 

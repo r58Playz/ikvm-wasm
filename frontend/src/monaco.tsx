@@ -4,7 +4,7 @@ import * as monaco from "monaco-editor";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 
 (self as any).MonacoEnvironment = {
-	getWorker(_: any, label: any) {
+	getWorker() {
 		return new editorWorker();
 	},
 };

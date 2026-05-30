@@ -4,6 +4,10 @@ DOTNETFLAGS=--nodereuse:false -v n
 AOT?=false
 OPT?=false
 
+RT_JAR_SRC := $(firstword \
+	$(wildcard $(JAVA_HOME)/jre/lib/rt.jar) \
+	$(wildcard /usr/lib/jvm/java-8-openjdk/jre/lib/rt.jar))
+
 statics:
 	mkdir statics
 	wget https://github.com/r58Playz/FNA-WASM-Build/releases/download/$(STATICS_RELEASE)/dotnet.zip -O statics/dotnet.zip
@@ -11,7 +15,11 @@ statics:
 	wget https://github.com/r58Playz/IKVM-WASM-Build/releases/download/$(IKVM_RELEASE)/ikvm-wasm-bundle.zip -O statics/ikvm.zip
 	unzip -q -o statics/emsdk.zip -d statics/
 
-deps: statics
+frontend/public/assets/rt.jar0:
+	cp $(RT_JAR_SRC) frontend/public/assets/rt.jar
+	cd frontend/public/assets && split -b20M -d -a1 rt.jar rt.jar && rm rt.jar
+
+deps: statics frontend/public/assets/rt.jar0
 
 ikvmc-bundles: deps
 	unzip -q -o statics/dotnet.zip -d statics/dotnet
@@ -34,6 +42,7 @@ build: ikvmc-bundles
 	sed -i 's/this.appendULeb(32768)/this.appendULeb(65535)/' frontend/public/_framework/dotnet.runtime.*.js
 	# event-driven drain of main-thread proxy queue on worker checkMailbox notifications (replaces manual setInterval pump)
 	sed -i 's|if (cmd === "checkMailbox") {|if (cmd === "checkMailbox") { if (!ENVIRONMENT_IS_PTHREAD \&\& wasmExports \&\& wasmExports["emscripten_main_thread_process_queued_calls"]) { try { wasmExports["emscripten_main_thread_process_queued_calls"](); } catch (e) {} }|' frontend/public/_framework/dotnet.native.*.js
+	cd frontend/public/_framework && split -b20M -d -a1 dotnet.native.*.wasm dotnet.native.*.wasm && rm dotnet.native.*.wasm && split -b20M -d -a1 IKVM.Java.*.dll IKVM.Java.*.dll && rm IKVM.Java.*.dll
 
 serve: build
 	cd frontend && pnpm dev
@@ -46,4 +55,4 @@ dotnetclean:
 ikvmclean:
 	rm -rvf {statics,jars}/ikvmc_*.{dll,pdb} {statics,jars}/*.aotprofile loader/Generated.targets loader/ikvmc-manifest.g.json || true
 clean: dotnetclean ikvmclean
-	rm -rvf statics || true
+	rm -rvf statics frontend/public/assets/rt.* || true

@@ -103,7 +103,7 @@ internal static class JavaCompiler {
 		FakeFileManager fm = new(baseFm);
 		baseFm.setLocation(
 			StandardLocation.PLATFORM_CLASS_PATH,
-			java.util.Arrays.asList(new java.io.File("/assets/rt.jar")));
+			java.util.Arrays.asList(new java.io.File("/libsdl/rt.jar")));
 		baseFm.setLocation(
 			StandardLocation.CLASS_PATH,
 			java.util.Collections.emptyList());

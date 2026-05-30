@@ -7,6 +7,8 @@
 
 /statics
 /frontend/public/image
+/frontend/public/assets/*
+!/frontend/public/assets/.gitkeep
 /frontend/public/_framework
 /jars/*
 !/jars/.gitkeep

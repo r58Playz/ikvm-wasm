@@ -55,9 +55,6 @@ static partial class IkvmWasm
 			Emscripten.MountFetchFile(0, "/ikvm/lib/content-types.properties");
 			Emscripten.MountFetchFile(0, "/ikvm/lib/logging.properties");
 
-			Emscripten.MountFetch(1, fetchbase + "/assets", "/assets");
-			Emscripten.MountFetchFile(1, "/assets/rt.jar");
-
 			File.WriteAllText("/ikvm.properties", "ikvm.home=/ikvm");
 
 			// -- ikvm will init after this --
