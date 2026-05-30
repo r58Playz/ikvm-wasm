@@ -5,6 +5,15 @@ export default defineConfig({
 	plugins: [basicSsl()],
 	build: {
 		target: "es2022",
+		rollupOptions: {
+			output: {
+				manualChunks: (id) => {
+					if (id.includes("monaco-editor")) {
+						return "monaco";
+					}
+				},
+			},
+		},
 	},
 	server: {
 		headers: {

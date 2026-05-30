@@ -45,7 +45,7 @@ export async function initDotnet() {
 
 	console.time("dotnet ");
 	runtime = await dotnet
-		.withConfig({ pthreadPoolInitialSize: 16 })
+		.withConfig({ pthreadPoolInitialSize: 4 })
 		.withModuleConfig({
 			onRuntimeInitialized(Module: any) {
 				(globalThis as any).wasm = { Module, FS: Module.FS };
@@ -100,22 +100,12 @@ export async function initDotnet() {
 	console.timeEnd("dotnet ");
 }
 
-let JAVA = `
-package com.example;
-public class MyClass {
-	public static void main(String[] args) {
-		System.out.println("Hi!");
-		System.out.println("This should be populated by JS:");
-		System.out.println("__source__");
-	}
-}
-`;
-
-JAVA = JAVA.replace("__source__", JAVA.replaceAll("\n", "\\n").replaceAll(`"`, `\\"`).replaceAll("\t", "    "));
-console.log(JAVA);
-
-export async function runJava() {
+export async function runJava(source: Map<string, string>) {
 	console.time("runJava ");
-	await exports.IkvmWasm.RunJava([["com.example.MyClass", JAVA]]);
+	await exports.IkvmWasm.RunJava([...source.entries()].map(([a, b]) => {
+		if (a.endsWith(".java"))
+			a = a.slice(0, a.length - ".java".length);
+		return [a, b];
+	}));
 	console.timeEnd("runJava ");
 }

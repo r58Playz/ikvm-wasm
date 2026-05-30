@@ -89,9 +89,9 @@ static partial class IkvmWasm
 			var sources = ConvertJSObjectToStringArray(sourcesObj).ToDictionary(x => x[0], x => x[1]);
 			var result = JavaCompiler.CompileJavaSource(sources);
 
-			Console.WriteLine(result.CompilerStdout);
+			Console.Error.WriteLine(result.CompilerStdout);
 			foreach (var diag in result.Diagnostics) {
-				Console.WriteLine($"[{diag.getKind()}] line {diag.getLineNumber()}: {diag.getMessage(null)}");
+				Console.Error.WriteLine($"[{diag.getKind()}] line {diag.getLineNumber()}: {diag.getMessage(null)}");
 			}
 
 			if (result.ClassLoader != null) {

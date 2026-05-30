@@ -5,9 +5,41 @@ body {
 	padding: 0;
 	margin: 0;
 	overflow: hidden;
-	font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
 }
 
 * {
 	box-sizing: border-box;
+}
+
+:root {
+	--font-body:
+		"Adwaita Sans", "Inter", -apple-system, system-ui, BlinkMacSystemFont,
+		"Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--font-mono:
+		"Adwaita Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo,
+		Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+	--accent: #b885ff;
+
+	--bg-sub: color-mix(in srgb, #040404 97.5%, var(--accent));
+	--bg: color-mix(in srgb, #0a0a0a 97.5%, var(--accent));
+
+	--surface0: color-mix(in srgb, #0f0f0f 97.5%, var(--accent));
+	--surface1: color-mix(in srgb, #1f1f1f 97.5%, var(--accent));
+	--surface2: color-mix(in srgb, #222222 97.5%, var(--accent));
+	--surface3: color-mix(in srgb, #272727 97.5%, var(--accent));
+	--surface4: color-mix(in srgb, #333333 97.5%, var(--accent));
+	--surface5: color-mix(in srgb, #3a3a3a 97.5%, var(--accent));
+	--surface6: color-mix(in srgb, #3f3f3f 97.5%, var(--accent));
+
+	--fg: #fff;
+	--fg2: color-mix(in srgb, #eaeaea 97.5%, var(--accent));
+	--fg3: color-mix(in srgb, #dedede 97.5%, var(--accent));
+	--fg4: color-mix(in srgb, #cacaca 97.5%, var(--accent));
+	--fg5: color-mix(in srgb, #bebebe 97.5%, var(--accent));
+	--fg6: color-mix(in srgb, #aaaaaa 97.5%, var(--accent));
+
+	--error: #f02424;
+	--success: #84f084;
+	--warning: #ecd47a;
+	--info: #b2c2f8;
 }
