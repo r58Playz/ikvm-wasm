@@ -1,0 +1,84 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master 
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build IKVM Wasm
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          pnpm config set store-dir ~/.pnpm-store
+          cd frontend && pnpm install
+
+      - name: Setup Dotnet
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            8.0.x
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '8'
+
+      - name: Install mono
+        run: sudo apt-get install mono-devel
+
+      - name: Build Csproj
+        run: |
+          cd loader && dotnet workload restore && cd ..
+          make publish AOT=true OPT=true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ikvm-wasm
+          path: frontend/dist/
+          compression-level: 6
+  deploy:
+    name: Deploy to ikvm.toshitchawda.com
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+      deployments: write
+
+    steps:
+      - name: Get artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ikvm-wasm
+          path: dist/
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          command: pages deploy dist --project-name=ikvm-wasm

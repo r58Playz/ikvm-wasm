@@ -1,3 +1,8 @@
-# ikvm wasm
+# ikvm-wasm
 
-python3 gen-static-libs.py /ikvm/bin/libiava.so:out/native/libiava.a /ikvm/bin/libzip.so:out/native/libzip.a /ikvm/bin/libnio.so:out/native/libnio.a /ikvm/bin/libnet.so:out/native/libnet.a /tmp/lwjgl/liblwjgl.so:../native-deps/out/mt/liblwjgl3.a /tmp/lwjgl/libglfw.so:../native-deps/out/mt/libglfw3.a /tmp/lwjgl/liblwjgl_stb.so:../native-deps/out/mt/liblwjgl_stb.a --rename-symbol /tmp/lwjgl/libglfw.so:emscripten_glfw3_get_proc_address:glfwGetProcAddress --add-alias /tmp/lwjgl/libglfw.so:glfw3 --add-alias /tmp/lwjgl/libglfw.so:/tmp/lwjgl/liblwjgl_opengl.so --add-alias /tmp/lwjgl/libglfw.so:libGLX.so.0 > ../../../ikvm-wasm/statics.c
+Demo frontend showcasing Java code running via IKVM on mono-wasm.
+
+## Building
+1. Install .NET 10 with the wasm-tools workload
+2. Make sure you have `split` `unzip` `wget` `python3` `sed`
+3. `make serve` to serve, `make publish` to build for release
