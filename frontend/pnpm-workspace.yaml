@@ -1,2 +1,3 @@
-onlyBuiltDependencies:
-  - "dreamland"
+allowBuilds:
+  "dreamland": true
+  esbuild: false

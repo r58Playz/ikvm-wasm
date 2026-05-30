@@ -11,7 +11,7 @@ export default defineConfig({
 			"Cross-Origin-Opener-Policy": "same-origin",
 			"Cross-Origin-Embedder-Policy": "require-corp",
 		},
-		port: 5021,
+		port: 5022,
 		strictPort: true,
 		host: true,
 		allowedHosts: ["nyatop.internal.hgci.org", "100.64.0.10"]

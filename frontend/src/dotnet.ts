@@ -1,4 +1,3 @@
-import { createState } from "dreamland/core";
 import type { ModuleAPI, MonoConfig, RuntimeAPI } from "./dotnetdefs";
 
 const wasm: ModuleAPI = await eval(`import("/_framework/dotnet.js")`);
@@ -7,27 +6,49 @@ let runtime: RuntimeAPI;
 let config: MonoConfig;
 let exports: any;
 
-export let dotnetState = createState({
-	logs: [] as string[]
-});
+export type Log = { color: string; log: string };
+export let loglisteners: ((log: Log) => void)[] = [];
 
-console.log = new Proxy(console.log, {
-	apply(target, thisArg, argArray) {
-		dotnetState.logs = [...dotnetState.logs, argArray.join(" ")];
-		return Reflect.apply(target, thisArg, argArray);
-	},
-})
+let logs: string[] = [];
+(globalThis as any).logs = logs;
 
-let DEFAULT_JARS = ["/assets/log4j-demo.jar"];
-let hackfixtimer = -1;
+function proxyConsole(name: string, color: string) {
+	// @ts-expect-error ts sucks
+	const old = console[name].bind(console);
+	// @ts-expect-error ts sucks
+	console[name] = (...args) => {
+		let str;
+		try {
+			str = args.join(" ");
+		} catch {
+			str = "<failed to render>";
+		}
+		if (str.includes("maybeExit:") || str.includes("runtimeKeepalive"))return;
+		old(...args);
+		for (const logger of loglisteners) {
+			logger({ color, log: str });
+		}
+		logs.push(str);
+	};
+	return old;
+}
+export const bypassError = proxyConsole("error", "var(--error)");
+export const bypassWarn = proxyConsole("warn", "var(--warning)");
+export const bypassLog = proxyConsole("log", "var(--fg)");
+export const bypassInfo = proxyConsole("info", "var(--info)");
+export const bypassDebug = proxyConsole("debug", "var(--fg4)");
+(globalThis as any).bypassLog = bypassLog;
+
 export async function initDotnet() {
+	// emscripten proxy hackfix number 39847232303
+	(globalThis as any).Atomics.waitAsync = undefined;
+
 	console.time("dotnet ");
 	runtime = await dotnet
 		.withConfig({ pthreadPoolInitialSize: 16 })
 		.withModuleConfig({
 			onRuntimeInitialized(Module: any) {
 				(globalThis as any).wasm = { Module, FS: Module.FS };
-				hackfixtimer = setInterval(() => Module.checkMailbox(), 4);
 			}
 		})
 		.withEnvironmentVariable("MONO_SLEEP_ABORT_LIMIT", "20000")
@@ -74,14 +95,27 @@ export async function initDotnet() {
 	};
 	console.debug("PreInit...");
 	await runtime.runMain();
-	await exports.IkvmWasm.PreInit(location.href, DEFAULT_JARS, []);
+	await exports.IkvmWasm.PreInit(location.href, []);
 	console.debug("dotnet initialized");
 	console.timeEnd("dotnet ");
-	setTimeout(() => clearInterval(hackfixtimer), 10 * 1000);
 }
 
-export async function play() {
-	console.debug("RunJar...");
-	await exports.IkvmWasm.RunJar(DEFAULT_JARS[0], null);
-	console.debug("Exited");
+let JAVA = `
+package com.example;
+public class MyClass {
+	public static void main(String[] args) {
+		System.out.println("Hi!");
+		System.out.println("This should be populated by JS:");
+		System.out.println("__source__");
+	}
+}
+`;
+
+JAVA = JAVA.replace("__source__", JAVA.replaceAll("\n", "\\n").replaceAll(`"`, `\\"`).replaceAll("\t", "    "));
+console.log(JAVA);
+
+export async function runJava() {
+	console.time("runJava ");
+	await exports.IkvmWasm.RunJava([["com.example.MyClass", JAVA]]);
+	console.timeEnd("runJava ");
 }

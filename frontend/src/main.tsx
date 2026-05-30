@@ -1,25 +1,77 @@
 import { css, FC } from "dreamland/core";
 import "./style.css";
-import { dotnetState, initDotnet, play } from "./dotnet";
+import { initDotnet, loglisteners, runJava } from "./dotnet";
+
+function LogView(this: FC<{ scrolling: boolean }>) {
+	const create = (color: string, log: string) => {
+		const el = document.createElement("div");
+		el.classList.add("log");
+		el.innerText = log;
+		el.style.color = color;
+		return el;
+	};
+
+	this.cx.mount = () => {
+		const logroot = this.root as HTMLElement;
+		const frag = document.createDocumentFragment();
+
+		loglisteners.push((x) => frag.append(create(x.color, x.log)));
+		setInterval(() => {
+			if (frag.children.length > 0) {
+				logroot.appendChild(frag);
+				logroot.scrollTop = logroot.scrollHeight;
+			}
+		}, 250);
+	};
+
+	return (
+		<div
+			class="component-log"
+			style={this.scrolling ? "overflow: auto" : "overflow: hidden"}
+		/>
+	);
+};
+LogView.css = `
+	min-height: 0;
+	flex: 1;
+	font-family: var(--font-mono);
+
+	::-webkit-scrollbar {
+		width: 10px;
+	}
+	::-webkit-scrollbar-track {
+		background: var(--surface3);
+	}
+	::-webkit-scrollbar-thumb {
+		background: var(--surface6);
+	}
+`;
 
 function App(this: FC<{}, {}>) {
 	this.cx.mount = async () => {
 		await initDotnet();
-		await play();
+		await runJava();
 	};
 
 	return (
 		<div>
-			{use(dotnetState.logs).mapEach(x => <div>{x}</div>)}
+			<LogView scrolling={true} />
 		</div>
 	)
 }
 App.style = css`
 	:scope {
-		overflow: scroll;
 		height: 100%;
-		font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
-		white-space: pre-wrap;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	:global(.component-log) {
+		font-family: monospace;
+		flex: 1;
+		align-self: stretch;
+		background: #eee;
 	}
 `;
 

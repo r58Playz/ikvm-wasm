@@ -51,25 +51,14 @@ BUNDLES: list[Bundle] = [
         aot=True,
     ),
     Bundle(
-        name="guava",
+        name="ecj",
         output_dir="jars",
-        output_dll="ikvmc_guava-21.0.dll",
-        jars=["com.google.guava:guava:21.0"],
-        prefixes=["com.google.common."],
-        aot=False,
-    ),
-    Bundle(
-        name="commons",
-        output_dir="jars",
-        output_dll="ikvmc_commons.dll",
+        output_dll="ikvmc_ecj.dll",
         jars=[
-            "org.apache.commons:commons-lang3:3.14.0",
-            "commons-io:commons-io:2.15.1",
-            "org.apache.commons:commons-collections4:4.4",
-            "org.apache.commons:commons-text:1.11.0",
+            "org.eclipse.jdt.core.compiler:ecj:4.6.1",
         ],
-        prefixes=["org.apache.commons."],
-        aot=False,
+        prefixes=["org.eclipse.jdt.internal"],
+        aot=True,
     ),
 ]
 
