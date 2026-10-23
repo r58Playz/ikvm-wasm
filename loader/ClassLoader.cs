@@ -5,29 +5,24 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.InteropServices.JavaScript;
+using System.Runtime.InteropServices;
 using IKVM.Runtime;
 
-internal partial class ClassLoaderLogging
+internal class SafeClassWriter(org.objectweb.asm.ClassReader reader, int flags) : org.objectweb.asm.ClassWriter(reader, flags)
 {
-	[JSImport("globalThis.console.debug")]
-	private static partial void DebugLog(string message);
-
-	public static void Debug(string message)
+	protected override string getCommonSuperClass(string type1, string type2)
 	{
-		try
-		{
-			DebugLog(message);
-		}
-		catch
-		{
-			Console.WriteLine(message);
-		}
+		try { return base.getCommonSuperClass(type1, type2); }
+		catch (Exception) { return "java/lang/Object"; }
 	}
 }
 
-internal sealed class IkvmClassLoader : java.net.URLClassLoader
+internal sealed class IkvmClassLoader : java.net.URLClassLoader, ikvm.lang.LinkTrustPolicy
 {
+	// logs from any thread straight to the ui console (a JSImport only works on the thread that owns the JS context)
+	[DllImport("Emscripten")]
+	private static extern void classloader_debug([MarshalAs(UnmanagedType.LPUTF8Str)] string log);
+
 	private readonly java.lang.ClassLoader systemLoader;
 	private readonly List<(string Name, string[] Prefixes, java.lang.ClassLoader Loader)> dllLoaders;
 	private readonly List<(string[] Prefixes, System.Type Visitor)> classTransformers;
@@ -125,15 +120,15 @@ internal sealed class IkvmClassLoader : java.net.URLClassLoader
 
 		foreach (var transformer in classTransformers)
 		{
-			if (!transformer.Prefixes.Any(x => name.StartsWith(x)))
+			if (!transformer.Prefixes.Any(x => name.StartsWith(x, StringComparison.Ordinal)))
 				continue;
 
-			ClassLoaderLogging.Debug($"[IkvmClassLoader] applying transformer {transformer.Visitor} to '{name}'");
+			classloader_debug($"[IkvmClassLoader] applying transformer {transformer.Visitor} to '{name}'");
 
 			try
 			{
 				org.objectweb.asm.ClassReader reader = new(bytes);
-				org.objectweb.asm.ClassWriter writer = new(reader, org.objectweb.asm.ClassWriter.COMPUTE_FRAMES | org.objectweb.asm.ClassWriter.COMPUTE_MAXS);
+				org.objectweb.asm.ClassWriter writer = new SafeClassWriter(reader, org.objectweb.asm.ClassWriter.COMPUTE_FRAMES | org.objectweb.asm.ClassWriter.COMPUTE_MAXS);
 				var visitor = (org.objectweb.asm.ClassVisitor)Activator.CreateInstance(transformer.Visitor, [name, writer]);
 				reader.accept(visitor, 0);
 
@@ -147,6 +142,21 @@ internal sealed class IkvmClassLoader : java.net.URLClassLoader
 		}
 
 		return defineClass(name, bytes, 0, bytes.Length);
+	}
+
+	// under IKVM_LAZY_CLASS_LOADING, names this returns true for get bound eagerly at link time (full speed)
+	// instead of through a lazily resolved indirection. only true for names served by the class library or
+	// a statically compiled bundle, which load without side effects.
+	public bool isEagerLinkSafe(string name)
+	{
+		if (name.StartsWith("java.", StringComparison.Ordinal) || name.StartsWith("javax.", StringComparison.Ordinal) || name.StartsWith("jdk.", StringComparison.Ordinal) || name.StartsWith("sun.", StringComparison.Ordinal))
+			return true;
+
+		foreach (var (_, prefixes, _) in dllLoaders)
+			if (prefixes.Any(x => name.StartsWith(x, StringComparison.Ordinal)))
+				return true;
+
+		return false;
 	}
 
 	protected override java.lang.Class loadClass(string name, bool resolve)
@@ -176,12 +186,13 @@ internal sealed class IkvmClassLoader : java.net.URLClassLoader
 			{
 				foreach (var (assemblyName, prefixes, loader) in dllLoaders)
 				{
-					if (!prefixes.Any(x => name.StartsWith(x)))
+					if (!prefixes.Any(x => name.StartsWith(x, StringComparison.Ordinal)))
 						continue;
 
 					loadedFrom = $"assembly {assemblyName}";
 					cls = loader.loadClass(name);
 					fastpath = true;
+					break;
 				}
 			}
 
@@ -214,7 +225,7 @@ internal sealed class IkvmClassLoader : java.net.URLClassLoader
 				resolveClass(cls);
 			}
 
-			ClassLoaderLogging.Debug($"[IkvmClassLoader] '{name}' loaded from {loadedFrom}");
+			classloader_debug($"[IkvmClassLoader] '{name}' loaded from {loadedFrom}");
 			return cls;
 		}
 	}

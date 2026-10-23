@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices.JavaScript;
 
@@ -36,44 +37,75 @@ static partial class IkvmWasm
 	{
 		try
 		{
-			Emscripten.MountOpfs();
+			Emscripten.InstallThreadLogForwarder();
 
 			Emscripten.MountFetch(0, fetchbase + "/image", "/ikvm");
+			// JDK 25's home: its configuration in conf/, data in lib/, and the libraries the JDK looks up by file before
+			// it loads them (they are linked into the wasm; the image has placeholders)
 			Emscripten.MountFetchDir(0, "/ikvm/bin");
-			Emscripten.MountFetchFile(0, "/ikvm/bin/libzip.so");
-			Emscripten.MountFetchFile(0, "/ikvm/bin/libnio.so");
-			Emscripten.MountFetchFile(0, "/ikvm/bin/libnet.so");
-			Emscripten.MountFetchFile(0, "/ikvm/bin/libmanagement.so");
-			Emscripten.MountFetchFile(0, "/ikvm/bin/libawt.so");
-			Emscripten.MountFetchFile(0, "/ikvm/bin/libfontmanager.so");
-			Emscripten.MountFetchFile(0, "/ikvm/bin/libmlib_image.so");
-			Emscripten.MountFetchFile(0, "/ikvm/bin/liblcms.so");
-			Emscripten.MountFetchFile(0, "/ikvm/bin/libjpeg.so");
+			foreach (var lib in new[] { "zip", "nio", "net", "management", "management_ext", "prefs", "awt", "awt_headless", "fontmanager", "mlib_image", "lcms", "javajpeg" })
+				Emscripten.MountFetchFile(0, $"/ikvm/bin/lib{lib}.so");
+			Emscripten.MountFetchDir(0, "/ikvm/conf");
+			Emscripten.MountFetchFile(0, "/ikvm/conf/logging.properties");
+			Emscripten.MountFetchFile(0, "/ikvm/conf/net.properties");
+			Emscripten.MountFetchDir(0, "/ikvm/conf/security");
+			Emscripten.MountFetchFile(0, "/ikvm/conf/security/java.security");
+			Emscripten.MountFetchDir(0, "/ikvm/conf/security/policy");
+			Emscripten.MountFetchDir(0, "/ikvm/conf/security/policy/unlimited");
+			Emscripten.MountFetchFile(0, "/ikvm/conf/security/policy/unlimited/default_local.policy");
+			Emscripten.MountFetchFile(0, "/ikvm/conf/security/policy/unlimited/default_US_export.policy");
 			Emscripten.MountFetchDir(0, "/ikvm/lib");
-			Emscripten.MountFetchFile(0, "/ikvm/lib/currency.data");
 			Emscripten.MountFetchFile(0, "/ikvm/lib/tzdb.dat");
-			Emscripten.MountFetchFile(0, "/ikvm/lib/content-types.properties");
-			Emscripten.MountFetchFile(0, "/ikvm/lib/logging.properties");
+			Emscripten.MountFetchDir(0, "/ikvm/lib/security");
+			Emscripten.MountFetchFile(0, "/ikvm/lib/security/cacerts");
+			Emscripten.MountFetchFile(0, "/ikvm/lib/security/blocked.certs");
+			Emscripten.MountFetchFile(0, "/ikvm/lib/security/public_suffix_list.dat");
+			// ecj reads the JDK's version from here before it opens jrt:/
+			Emscripten.MountFetchFile(0, "/ikvm/release");
 
 			File.WriteAllText("/ikvm.properties", "ikvm.home=/ikvm");
 
-			// -- ikvm will init after this --
-			var bundleDlls = IkvmcManifest.LoadEmbedded().AllDlls();
-			java.lang.Thread.currentThread().setContextClassLoader(new IkvmClassLoader([], bundleDlls, []));
-
-			java.lang.System.setProperty("java.awt.headless", "true");
-
-			foreach (var prop in ConvertJSObjectToStringArray(props))
-			{
-				Console.WriteLine($"-D{prop[0]}={prop[1]}");
-				java.lang.System.setProperty(prop[0], prop[1]);
-			}
+			InitializeJava(props);
 
 			return Task.CompletedTask;
 		}
 		catch (Exception e)
 		{
 			ExceptionLogging.WriteException(e, "Error in PreInit()!");
+			return Task.FromException(e);
+		}
+	}
+
+	// Keep Java type initialization out of PreInit's compilation, until the filesystem and
+	// startup properties above are ready.
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private static void InitializeJava(JSObject props)
+	{
+		var bundleDlls = IkvmcManifest.LoadEmbedded().AllDlls();
+		java.lang.Thread.currentThread().setContextClassLoader(new IkvmClassLoader([], bundleDlls, []));
+
+		java.lang.System.setProperty("java.awt.headless", "true");
+		// ecj otherwise hands every compile's code generation to a thread of its own
+		java.lang.System.setProperty("jdt.compiler.useSingleThread", "true");
+
+		foreach (var prop in ConvertJSObjectToStringArray(props))
+		{
+			Console.WriteLine($"-D{prop[0]}={prop[1]}");
+			java.lang.System.setProperty(prop[0], prop[1]);
+		}
+	}
+
+	[JSExport]
+	internal static Task Warmup()
+	{
+		try
+		{
+			JavaCompiler.Warmup();
+			return Task.CompletedTask;
+		}
+		catch (Exception e)
+		{
+			ExceptionLogging.WriteException(e, "[IKVM] Warmup failed");
 			return Task.FromException(e);
 		}
 	}
@@ -86,18 +118,36 @@ static partial class IkvmWasm
 			var sources = ConvertJSObjectToStringArray(sourcesObj).ToDictionary(x => x[0], x => x[1]);
 			var result = JavaCompiler.CompileJavaSource(sources);
 
-			Console.Error.WriteLine(result.CompilerStdout);
-			foreach (var diag in result.Diagnostics) {
-				Console.Error.WriteLine($"[{diag.getKind()}] line {diag.getLineNumber()}: {diag.getMessage(null)}");
+			// ecj reports problems with their source lines; the diagnostics are the same problems, without them
+			if (!string.IsNullOrWhiteSpace(result.CompilerStdout))
+			{
+				Console.Error.WriteLine(result.CompilerStdout.TrimEnd());
+			}
+			else
+			{
+				foreach (var diag in result.Diagnostics)
+					Console.Error.WriteLine($"[{diag.getKind()}] line {diag.getLineNumber()}: {diag.getMessage(null)}");
 			}
 
-			if (result.ClassLoader != null) {
-				var mainClass = java.lang.Class.forName(result.MainClass, true, result.ClassLoader);
-				var stringArrayClass = java.lang.Class.forName("[Ljava.lang.String;");
-				var mainMethod = mainClass.getMethod("main", new[] { stringArrayClass });
-				mainMethod.invoke(null, new object[] { Array.Empty<string>() });
-			} else {
-				throw new InvalidOperationException("Java compile failed");
+			if (result.ClassLoader == null)
+				return Task.FromException(new InvalidOperationException("Java compile failed"));
+			if (result.MainClass == null)
+			{
+				Console.Error.WriteLine("error: no main method found");
+				return Task.FromException(new InvalidOperationException("No main method found"));
+			}
+
+			var mainClass = java.lang.Class.forName(result.MainClass, true, result.ClassLoader);
+			try
+			{
+				JavaCompiler.LaunchMain(mainClass, []);
+			}
+			catch (JavaProgramException e)
+			{
+				// report it like the java launcher would
+				Console.Error.Write("Exception in thread \"main\" ");
+				ExceptionLogging.PrintJavaThrowableChain(e.InnerException, userFramesOnly: true);
+				return Task.FromException(e.InnerException);
 			}
 
 			return Task.CompletedTask;

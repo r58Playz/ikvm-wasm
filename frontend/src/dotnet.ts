@@ -5,12 +5,10 @@ const dotnet = wasm.dotnet;
 let runtime: RuntimeAPI;
 let config: MonoConfig;
 let exports: any;
+let warmup: Promise<void>;
 
 export type Log = { color: string; log: string };
 export let loglisteners: ((log: Log) => void)[] = [];
-
-let logs: string[] = [];
-(globalThis as any).logs = logs;
 
 function proxyConsole(name: string, color: string) {
 	// @ts-expect-error ts sucks
@@ -25,10 +23,11 @@ function proxyConsole(name: string, color: string) {
 		}
 		if (str.includes("maybeExit:") || str.includes("runtimeKeepalive")) return;
 		old(...args);
+		// ikvm's own stats, which it always prints in the browser
+		if (/^\[IKVM (lazybody|indy|privileged)\]/.test(str)) return;
 		for (const logger of loglisteners) {
 			logger({ color, log: str });
 		}
-		logs.push(str);
 	};
 	return old;
 }
@@ -84,19 +83,6 @@ async function resourceLoader(defaultUri: string, contentType: string) {
 	return res;
 }
 
-export async function maybeDownloadRtJar() {
-	let dir = await navigator.storage.getDirectory();
-	try {
-		await dir.getFileHandle("rt.jar", { create: false });
-		return;
-	} catch { }
-	console.debug("downloading rt.jar");
-	let file = await dir.getFileHandle("rt.jar", { create: true });
-	let writable = await file.createWritable();
-	let stream = await joinSplit("/assets/rt.jar");
-	await stream.pipeTo(writable);
-}
-
 export async function initDotnet() {
 	// emscripten proxy hackfix number 39847232303
 	(globalThis as any).Atomics.waitAsync = undefined;
@@ -121,7 +107,20 @@ export async function initDotnet() {
 		//.withEnvironmentVariable("MONO_LOG_LEVEL", "debug")
 		//.withEnvironmentVariable("MONO_LOG_MASK", "gc")
 		//.withEnvironmentVariable("MONO_LOG_MASK", "aot")
-		.withEnvironmentVariable("MONO_GC_PARAMS", "nursery-size=16m")
+		// no parallel collectors (major=marksweep-conc-par,minor=simple-par): their gc worker threads take up the
+		// pthread pool, and the main thread then deadlocks creating the finalizer thread
+		.withEnvironmentVariable("MONO_GC_PARAMS", "nursery-size=16m,tlab-size=64k,default-allowance-ratio=2.0")
+		// cap threadpools
+		.withEnvironmentVariable("DOTNET_PROCESSOR_COUNT", "4")
+
+		// wasm jit tier: on by default (MONO_WASM_JIT_AUTO=0 turns it off), STATS=1 prints what it compiled
+		.withEnvironmentVariable("MONO_WASM_JIT_RAISE_NOGC", "1")
+		//.withEnvironmentVariable("MONO_WASM_JIT_STATS", "1")
+
+		// openjdk-style lazy linking in ikvm
+		.withEnvironmentVariable("IKVM_LAZY_CLASS_LOADING", "1")
+		.withEnvironmentVariable("IKVM_LAZY_INPLACE", "1")
+		.withEnvironmentVariable("IKVM_LAZY_SIG", "1")
 		//.withEnvironmentVariable("IKVM_FROMCLASS_TRACE", "1")
 		//.withEnvironmentVariable("IKVM_UNSAFE_OFFSET_TRACE", "1")
 		.withRuntimeOptions([
@@ -131,15 +130,17 @@ export async function initDotnet() {
 			`--jiterpreter-back-branch-boost=${980}`, // make sure this is below trace hit count
 			`--jiterpreter-minimum-distance-between-traces=${3}`,
 			`--jiterpreter-trace-monitoring-period=${500}`,
-			`--jiterpreter-trace-monitoring-max-average-penalty=${50}`,
+			`--jiterpreter-trace-monitoring-max-average-penalty=${75}`,
 
-			// increase jit function limits
+			// increase jit function limits. every method the wasm jit tier compiles takes 2 table slots,
+			// and it silently stops compiling once the table is full
 			`--jiterpreter-wasm-bytes-limit=${64 * 1024 * 1024}`,
 			`--jiterpreter-max-module-size=${64 * 1024 - 1}`,
-			`--jiterpreter-table-size=${32 * 1024}`,
+			`--jiterpreter-table-size=${128 * 1024}`,
+			`--jiterpreter-aot-table-size=${64 * 1024}`,
 
 			// print jit stats
-			`--jiterpreter-stats-enabled`,
+			//`--jiterpreter-stats-enabled`,
 
 			//`--no-jiterpreter-jit-call-enabled`,
 			//`--no-jiterpreter-interp-entry-enabled`,
@@ -161,12 +162,16 @@ export async function initDotnet() {
 	};
 	console.debug("PreInit...");
 	await runtime.runMain();
-	await exports.IkvmWasm.PreInit(location.href, []);
+	await exports.IkvmWasm.PreInit(location.origin, []);
 	console.debug("dotnet initialized");
 	console.timeEnd("dotnet ");
+
+	// load and jit the compiler in the background. failures are logged by the runtime, and runJava will report its own
+	warmup = exports.IkvmWasm.Warmup().catch(() => {});
 }
 
 export async function runJava(source: Map<string, string>) {
+	await warmup;
 	console.time("runJava ");
 	await exports.IkvmWasm.RunJava([...source.entries()].map(([a, b]) => {
 		if (a.endsWith(".java"))

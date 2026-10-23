@@ -1,11 +1,14 @@
 using System;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 
 public static class Emscripten
 {
+    [DllImport("Emscripten")]
+    private static extern void install_thread_log_forwarder();
+    public static void InstallThreadLogForwarder() => install_thread_log_forwarder();
+
     [DllImport("Emscripten")]
     private static extern void start_em_loop();
 
@@ -16,23 +19,35 @@ public static class Emscripten
     private static int EmLoopCallback()
     {
         bool keepGoing;
+        Exception caught = null;
         try
         {
             keepGoing = EmLoopCb();
         }
         catch (Exception ex)
         {
-            ExceptionLogging.WriteException(ex, "Error in managed_em_loop_callback");
+            caught = ex;
             keepGoing = false;
         }
 
         if (!keepGoing)
         {
-			if (!EmLoopTask.TrySetResult())
-			{
-				Console.Error.WriteLine("Failed to end EmLoopTask");
-			}
-			EmLoopTask = null;
+            var tcs = EmLoopTask;
+            EmLoopTask = null;
+            if (caught is not null)
+            {
+                if (!tcs.TrySetException(caught))
+                {
+                    Console.Error.WriteLine("Failed to fault EmLoopTask");
+                }
+            }
+            else
+            {
+                if (!tcs.TrySetResult())
+                {
+                    Console.Error.WriteLine("Failed to end EmLoopTask");
+                }
+            }
         }
 
         return keepGoing ? 1 : 0;
@@ -77,8 +92,6 @@ public static class Emscripten
     private extern static int mount_fetch_file(int id, string path);
     [DllImport("Emscripten")]
     private extern static int mount_fetch_dir(int id, string path);
-
-	private static string[] FetchIDs = new string[8];
 
     public static void MountFetch(int id, string src, string dst)
     {

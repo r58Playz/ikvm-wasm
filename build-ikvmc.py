@@ -40,24 +40,29 @@ BUNDLES: list[Bundle] = [
     Bundle(
         name="asm",
         output_dir="jars",
-        output_dll="ikvmc_asm-9.7.1.dll",
+        output_dll="ikvmc_asm-9.9.dll",
         jars=[
-            "org.ow2.asm:asm:9.7.1",
-            "org.ow2.asm:asm-tree:9.7.1",
-            "org.ow2.asm:asm-analysis:9.7.1",
-            "org.ow2.asm:asm-commons:9.7.1",
+            "org.ow2.asm:asm:9.9",
+            "org.ow2.asm:asm-tree:9.9",
+            "org.ow2.asm:asm-analysis:9.9",
+            "org.ow2.asm:asm-commons:9.9",
         ],
-        prefixes=["org.objectweb.asm"],
-        aot=True,
+        prefixes=["org.objectweb.asm."],
+        aot=False,
     ),
+    # in-browser java compiler (javax.tools), compiles against the class library's jrt:/.
+    # aot'd: the mono interpreter miscompiles JrtFileSystem.walkJrtForModules, which fails every compile. its IR
+    # generator (interp/transform.c generate_code) skips over already emitted bblocks without advancing its
+    # MonoSimpleBasicBlock cursor, so a stale, dead block's flag drops live code, and the method's normal exit
+    # falls through into a catch handler. also faster than the interpreted + jitted compiler.
     Bundle(
         name="ecj",
         output_dir="jars",
-        output_dll="ikvmc_ecj.dll",
+        output_dll="ikvmc_ecj-3.46.100.dll",
         jars=[
-            "org.eclipse.jdt.core.compiler:ecj:4.6.1",
+            "org.eclipse.jdt:ecj:3.46.100",
         ],
-        prefixes=["org.eclipse.jdt.internal"],
+        prefixes=["org.eclipse.jdt."],
         aot=True,
     ),
 ]

@@ -1,14 +1,25 @@
 import { css, FC } from "dreamland/core";
 import "./style.css";
-import { initDotnet, maybeDownloadRtJar, runJava } from "./dotnet";
+import { initDotnet, runJava } from "./dotnet";
 import { LogView } from "./logs";
 import { Monaco } from "./monaco";
 
-let DEFAULT_CODE = `package com.example;
+let DEFAULT_CODE = `sealed interface Shape permits Circle, Rectangle {}
+record Circle(double radius) implements Shape {}
+record Rectangle(double width, double height) implements Shape {}
 
-public class Main {
-	public static void main(String[] args) {
-		System.out.println("Hi from Java -> IKVM -> Mono -> WASM");
+double area(Shape shape) {
+	return switch (shape) {
+		case Circle(double r) -> Math.PI * r * r;
+		case Rectangle(double w, double h) -> w * h;
+	};
+}
+
+void main() {
+	IO.println("Hi from Java " + System.getProperty("java.version") + " -> IKVM -> Mono -> WASM");
+	for (Shape shape : List.of(new Circle(1), new Rectangle(2, 3))) {
+		IO.println("""
+			%s has area %.2f""".formatted(shape, area(shape)));
 	}
 }
 `;
@@ -31,7 +42,7 @@ function App(this: FC<{}, { value: string, ready: boolean }>) {
 	this.value = DEFAULT_CODE;
 	this.cx.mount = async () => {
 		console.debug("initializing dotnet");
-		await Promise.all([initDotnet(), maybeDownloadRtJar()]);
+		await initDotnet();
 		this.ready = true;
 	};
 
@@ -54,7 +65,7 @@ function App(this: FC<{}, { value: string, ready: boolean }>) {
 	return (
 		<div>
 			<div class="toolbar">
-				<span>Java Compiler <span class="sub">via IKVM + Mono-WASM</span></span>
+				<span>Java 25 Compiler <span class="sub">via IKVM + Mono-WASM</span></span>
 				<a href="https://github.com/r58Playz/ikvm-wasm" target="_blank"><GitHub /></a>
 				<div class="expand" />
 				<button on:click={run} disabled={use(this.ready).not()}>Run</button>

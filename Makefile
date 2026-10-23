@@ -1,25 +1,18 @@
-STATICS_RELEASE=2f78bbde-8957-4985-87c8-05232cd3d844
-IKVM_RELEASE=eddbf576-97e4-49fa-8606-f6c6f6f9b8ae
+STATICS_RELEASE=fe339c45-059a-44d4-a2de-8b978e25968a
+IKVM_RELEASE=5a7617b0-09b3-48d7-bf15-ce93d3bcf78c
 DOTNETFLAGS=--nodereuse:false -v n
-AOT?=false
+# the wasm jit runtime is mixed-aot: corlib + ikvm runtime aot'd, everything else interp/jit
+AOT?=true
 OPT?=false
-
-RT_JAR_SRC := $(firstword \
-	$(wildcard $(JAVA_HOME)/jre/lib/rt.jar) \
-	$(wildcard /usr/lib/jvm/java-8-openjdk/jre/lib/rt.jar))
 
 statics:
 	mkdir statics
-	wget https://github.com/r58Playz/FNA-WASM-Build/releases/download/$(STATICS_RELEASE)/dotnet.zip -O statics/dotnet.zip
+	wget https://github.com/r58Playz/FNA-WASM-Build/releases/download/$(STATICS_RELEASE)/dotnet-jit.zip -O statics/dotnet.zip
 	wget https://github.com/r58Playz/FNA-WASM-Build/releases/download/$(STATICS_RELEASE)/emsdk.zip -O statics/emsdk.zip
 	wget https://github.com/r58Playz/IKVM-WASM-Build/releases/download/$(IKVM_RELEASE)/ikvm-wasm-bundle.zip -O statics/ikvm.zip
 	unzip -q -o statics/emsdk.zip -d statics/
 
-frontend/public/assets/rt.jar0:
-	cp $(RT_JAR_SRC) frontend/public/assets/rt.jar
-	cd frontend/public/assets && split -b20M -d -a1 rt.jar rt.jar && rm rt.jar
-
-deps: statics frontend/public/assets/rt.jar0
+deps: statics
 
 ikvmc-bundles: deps
 	unzip -q -o statics/dotnet.zip -d statics/dotnet
@@ -27,13 +20,8 @@ ikvmc-bundles: deps
 	python3 build-ikvmc.py all
 
 build: ikvmc-bundles
-	rm -r frontend/public/{_framework,ikvm} loader/bin/Release/net10.0/publish/wwwroot/_framework || true
-#
-	./aotprofile.sh statics/ikvm_java.aotprofile statics/ikvm/IKVM.Java.dll \
-		ikvm.runtime. ikvm.internal. \
-		java.lang. java.util. java.nio. java.net. java.security. java.time. \
-		sun.nio.fs. sun.nio.cs. com.sun.nio.zipfs. \
-		sun.reflect. sun.misc.
+	rm -r frontend/public/{_framework,image} loader/bin/Release/net10.0/publish/wwwroot/_framework || true
+	rm -f frontend/public/assets/rt.jar* || true
 #
 	dotnet publish loader/IkvmWasm.csproj -c Release -p:IkvmWasmEnableAot=$(AOT) -p:IkvmWasmEnableWasmOpt=$(OPT) $(DOTNETFLAGS)
 	cp -r loader/bin/Release/net10.0/publish/wwwroot/_framework frontend/public/
@@ -51,8 +39,8 @@ publish: build
 	cd frontend && pnpm build
 
 dotnetclean:
-	rm -rvf loader/{bin,obj} loader/Generated.targets loader/ikvmc-manifest.g.json || true
+	rm -rvf statics/dotnet loader/{bin,obj} loader/Generated.targets loader/ikvmc-manifest.g.json || true
 ikvmclean:
-	rm -rvf {statics,jars}/ikvmc_*.{dll,pdb} {statics,jars}/*.aotprofile loader/Generated.targets loader/ikvmc-manifest.g.json || true
+	rm -rvf statics/ikvm {statics,jars}/ikvmc_*.{dll,pdb} loader/Generated.targets loader/ikvmc-manifest.g.json || true
 clean: dotnetclean ikvmclean
-	rm -rvf statics frontend/public/assets/rt.* || true
+	rm -rvf statics frontend/public/{_framework,image} frontend/public/assets/rt.* || true
