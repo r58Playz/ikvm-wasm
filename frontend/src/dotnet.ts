@@ -6,6 +6,8 @@ let runtime: RuntimeAPI;
 let config: MonoConfig;
 let exports: any;
 let warmup: Promise<void>;
+// when the last of the split downloads finished
+let downloaded = 0;
 
 export type Log = { color: string; log: string };
 export let loglisteners: ((log: Log) => void)[] = [];
@@ -64,6 +66,7 @@ async function joinSplit(baseUri: string) {
 					currentStream = chunk;
 					await this.pull!(controller);
 				} else {
+					downloaded = Math.max(downloaded, performance.now());
 					controller.close();
 				}
 			} else {
@@ -152,6 +155,7 @@ export async function initDotnet() {
 
 	config = runtime.getConfig();
 	exports = await runtime.getAssemblyExports(config.mainAssemblyName!);
+	let created = performance.now();
 
 	(globalThis as any).wasm = {
 		Module: runtime.Module,
@@ -163,9 +167,10 @@ export async function initDotnet() {
 	};
 	console.debug("PreInit...");
 	await runtime.runMain();
+	let mained = performance.now();
 	await exports.IkvmWasm.PreInit(location.origin, []);
 	let end = performance.now()
-	console.debug(`dotnet initialized ${(end - start).toFixed(0)}`);
+	console.debug(`dotnet initialized ${(end - start).toFixed(0)} (downloads ${(downloaded - start).toFixed(0)}ms, runtime ${(created - start).toFixed(0)}ms, main ${(mained - created).toFixed(0)}ms, PreInit ${(end - mained).toFixed(0)}ms)`);
 	console.timeEnd("dotnet ");
 
 	// load and jit the compiler in the background. failures are logged by the runtime, and runJava will report its own

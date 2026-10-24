@@ -13,9 +13,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.request
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -115,6 +117,33 @@ def fetch(bundles: list[Bundle]) -> None:
             urllib.request.urlretrieve(resolved.url, resolved.local_path)
 
 
+SIGNATURE_FILE = re.compile(r"META-INF/([^/]+\.(SF|RSA|DSA|EC)|SIG-[^/]+)$", re.IGNORECASE)
+
+
+def unsigned(jar: Path) -> Path:
+    """A signed jar without its signature. ikvmc keeps a jar's resources in the jar, and the JDK verifies a signed jar
+    (its signature, and the digests in its manifest) the first time it reads one of them, all of it interpreted: for
+    ecj, about 40% of the first compile."""
+    with zipfile.ZipFile(jar) as src:
+        if not any(SIGNATURE_FILE.match(name) for name in src.namelist()):
+            return jar
+        out = REPO_ROOT / "jars" / "unsigned" / jar.name
+        if out.exists():
+            return out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(out, "w") as dst:
+            for info in src.infolist():
+                if SIGNATURE_FILE.match(info.filename):
+                    continue
+                data = src.read(info)
+                if info.filename == "META-INF/MANIFEST.MF":
+                    # only the main section: the others have the digests of each entry, for the signature
+                    data = re.split(rb"\r?\n\r?\n", data, maxsplit=1)[0] + b"\r\n\r\n"
+                dst.writestr(info, data)
+    print(f"[unsign] {jar} -> {out}")
+    return out
+
+
 def ikvmc(bundles: list[Bundle]) -> None:
     """Invoke ikvmc.sh once per bundle. The script itself skips if the output already exists."""
     ikvmc_sh = REPO_ROOT / "ikvmc.sh"
@@ -126,7 +155,7 @@ def ikvmc(bundles: list[Bundle]) -> None:
         out_path = REPO_ROOT / bundle.output_dir / bundle.output_dll
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        input_paths = [str(parse_jar_ref(ref).local_path) for ref in bundle.jars]
+        input_paths = [str(unsigned(parse_jar_ref(ref).local_path)) for ref in bundle.jars]
         cmd = ["bash", str(ikvmc_sh), str(out_path), *input_paths]
         print(f"[ikvmc] {bundle.name}: {' '.join(cmd)}")
         subprocess.run(cmd, check=True, cwd=REPO_ROOT)
