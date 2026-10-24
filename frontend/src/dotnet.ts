@@ -88,6 +88,7 @@ export async function initDotnet() {
 	(globalThis as any).Atomics.waitAsync = undefined;
 
 	console.time("dotnet ");
+	let start = performance.now();
 	runtime = await dotnet
 		.withConfig({ pthreadPoolInitialSize: 4 })
 		.withResourceLoader((type, _name, defaultUri, _integrity, behavior) => {
@@ -163,7 +164,8 @@ export async function initDotnet() {
 	console.debug("PreInit...");
 	await runtime.runMain();
 	await exports.IkvmWasm.PreInit(location.origin, []);
-	console.debug("dotnet initialized");
+	let end = performance.now()
+	console.debug(`dotnet initialized ${(end - start).toFixed(0)}`);
 	console.timeEnd("dotnet ");
 
 	// load and jit the compiler in the background. failures are logged by the runtime, and runJava will report its own
