@@ -10,6 +10,11 @@ public static class Emscripten
     public static void InstallThreadLogForwarder() => install_thread_log_forwarder();
 
     [DllImport("Emscripten")]
+    private static extern void flush_std_streams();
+    // writes out the last line of stdout and stderr when it has no newline
+    public static void FlushStdStreams() => flush_std_streams();
+
+    [DllImport("Emscripten")]
     private static extern void start_em_loop();
 
     private static TaskCompletionSource EmLoopTask;

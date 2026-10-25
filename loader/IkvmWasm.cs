@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
@@ -111,46 +112,93 @@ static partial class IkvmWasm
 	}
 
 	[JSExport]
+	internal static Task WarmupLanguage()
+	{
+		try
+		{
+			JavaLanguage.Warmup();
+			return Task.CompletedTask;
+		}
+		catch (Exception e)
+		{
+			ExceptionLogging.WriteException(e, "[jdt] Warmup failed");
+			return Task.FromException(e);
+		}
+	}
+
+	// the editor's language features: json, or "null" if there's nothing (or they failed, which is logged)
+	private static Task<string> Language(string name, Func<string> run)
+	{
+		try
+		{
+			return Task.FromResult(run());
+		}
+		catch (Exception e)
+		{
+			ExceptionLogging.WriteException(e, $"[jdt] {name} failed");
+			return Task.FromResult("null");
+		}
+	}
+
+	private static Dictionary<string, string> Sources(JSObject sourcesObj) =>
+		ConvertJSObjectToStringArray(sourcesObj).ToDictionary(x => x[0], x => x[1]);
+
+	[JSExport]
+	internal static Task<string> Diagnose(JSObject sourcesObj, string file) =>
+		Language("Diagnose", () => JavaLanguage.Diagnose(Sources(sourcesObj), file));
+
+	[JSExport]
+	internal static Task<string> Hover(JSObject sourcesObj, string file, int offset) =>
+		Language("Hover", () => JavaLanguage.Hover(Sources(sourcesObj), file, offset));
+
+	[JSExport]
+	internal static Task<string> Complete(JSObject sourcesObj, string file, int offset) =>
+		Language("Complete", () => JavaLanguage.Complete(Sources(sourcesObj), file, offset));
+
+	// start < 0 formats all of it
+	[JSExport]
+	internal static Task<string> Format(string source, int start, int end, int tabSize, bool insertSpaces) =>
+		Language("Format", () => JavaLanguage.Format(source, start, end, tabSize, insertSpaces));
+
+	// the program gets a java thread of its own, like the java launcher's main thread. every call from js runs on this
+	// one (dotnet-worker-001), which has to stay free while a program runs: for the editor's requests, and for
+	// anything else js asks for in the meantime.
+	[JSExport]
 	internal static Task RunJava(JSObject sourcesObj)
 	{
 		try
 		{
-			var sources = ConvertJSObjectToStringArray(sourcesObj).ToDictionary(x => x[0], x => x[1]);
-			var result = JavaCompiler.CompileJavaSource(sources);
+			var sources = Sources(sourcesObj);
+			var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+			var thread = new java.lang.Thread(null, new JavaRunnable(() =>
+			{
+				Exception failure;
+				try
+				{
+					failure = RunProgram(sources);
+				}
+				catch (Exception e)
+				{
+					ExceptionLogging.WriteException(e, "[IKVM] RunJava failed");
+					failure = e;
+				}
 
-			// ecj reports problems with their source lines; the diagnostics are the same problems, without them
-			if (!string.IsNullOrWhiteSpace(result.CompilerStdout))
-			{
-				Console.Error.WriteLine(result.CompilerStdout.TrimEnd());
-			}
-			else
-			{
-				foreach (var diag in result.Diagnostics)
-					Console.Error.WriteLine($"[{diag.getKind()}] line {diag.getLineNumber()}: {diag.getMessage(null)}");
-			}
-
-			if (result.ClassLoader == null)
-				return Task.FromException(new InvalidOperationException("Java compile failed"));
-			if (result.MainClass == null)
-			{
-				Console.Error.WriteLine("error: no main method found");
-				return Task.FromException(new InvalidOperationException("No main method found"));
-			}
-
-			var mainClass = java.lang.Class.forName(result.MainClass, true, result.ClassLoader);
-			try
-			{
-				JavaCompiler.LaunchMain(mainClass, []);
-			}
-			catch (JavaProgramException e)
-			{
-				// report it like the java launcher would
-				Console.Error.Write("Exception in thread \"main\" ");
-				ExceptionLogging.PrintJavaThrowableChain(e.InnerException, userFramesOnly: true);
-				return Task.FromException(e.InnerException);
-			}
-
-			return Task.CompletedTask;
+				try
+				{
+					FlushProgramOutput();
+				}
+				finally
+				{
+					// the page gets the program's output from this worker, and the result after it from
+					// dotnet-worker-001: both are messages to the page, which it takes in the order they were sent
+					if (failure == null)
+						done.SetResult();
+					else
+						done.SetException(failure);
+				}
+			}), "main", 0);
+			thread.start();
+			return done.Task;
 		}
 		catch (Exception e)
 		{
@@ -158,4 +206,58 @@ static partial class IkvmWasm
 			return Task.FromException(e);
 		}
 	}
+
+	// compiles and runs a program, and answers why it failed (it reported that itself), or null
+	private static Exception RunProgram(Dictionary<string, string> sources)
+	{
+		var result = JavaCompiler.CompileJavaSource(sources);
+
+		// ecj reports problems with their source lines; the diagnostics are the same problems, without them
+		if (!string.IsNullOrWhiteSpace(result.CompilerStdout))
+		{
+			Console.Error.WriteLine(result.CompilerStdout.TrimEnd());
+		}
+		else
+		{
+			foreach (var diag in result.Diagnostics)
+				Console.Error.WriteLine($"[{diag.getKind()}] line {diag.getLineNumber()}: {diag.getMessage(null)}");
+		}
+
+		if (result.ClassLoader == null)
+			return new InvalidOperationException("Java compile failed");
+		if (result.MainClass == null)
+		{
+			Console.Error.WriteLine("error: no main method found");
+			return new InvalidOperationException("No main method found");
+		}
+
+		var mainClass = java.lang.Class.forName(result.MainClass, true, result.ClassLoader);
+		try
+		{
+			JavaCompiler.LaunchMain(mainClass, []);
+		}
+		catch (JavaProgramException e)
+		{
+			// report it like the java launcher would, after what the program printed
+			FlushProgramOutput();
+			Console.Error.Write("Exception in thread \"main\" ");
+			ExceptionLogging.PrintJavaThrowableChain(e.InnerException, userFramesOnly: true);
+			return e.InnerException;
+		}
+
+		return null;
+	}
+
+	// as the jvm does when it exits, down to a last line without a newline
+	private static void FlushProgramOutput()
+	{
+		java.lang.System.@out.flush();
+		java.lang.System.err.flush();
+		Emscripten.FlushStdStreams();
+	}
+}
+
+internal sealed class JavaRunnable(Action body) : java.lang.Runnable
+{
+	public void run() => body();
 }

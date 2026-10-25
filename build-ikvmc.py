@@ -35,6 +35,7 @@ class Bundle:
     prefixes: list[str]      # class-name prefixes this DLL serves
     aot: bool = True
     always_replace: bool = False
+    references: list[str] = field(default_factory=list)  # names of earlier bundles this one links against
 
 
 BUNDLES: list[Bundle] = [
@@ -66,6 +67,35 @@ BUNDLES: list[Bundle] = [
         ],
         prefixes=["org.eclipse.jdt."],
         aot=True,
+    ),
+    # the rest of jdt core (the dom, code assist, the formatter) on the compiler above, for the editor's language
+    # features. it runs without osgi or a workspace: the platform bundles are only here because jdt core links
+    # against them.
+    Bundle(
+        name="jdt",
+        output_dir="jars",
+        output_dll="ikvmc_jdt-3.47.0.dll",
+        jars=[
+            "org.eclipse.jdt:org.eclipse.jdt.core:3.47.0",
+            "org.eclipse.platform:org.eclipse.core.commands:3.13.0",
+            "org.eclipse.platform:org.eclipse.core.contenttype:3.9.900",
+            "org.eclipse.platform:org.eclipse.core.expressions:3.9.700",
+            "org.eclipse.platform:org.eclipse.core.filesystem:1.11.500",
+            "org.eclipse.platform:org.eclipse.core.jobs:3.15.900",
+            "org.eclipse.platform:org.eclipse.core.resources:3.24.100",
+            "org.eclipse.platform:org.eclipse.core.runtime:3.35.0",
+            "org.eclipse.platform:org.eclipse.equinox.app:1.7.600",
+            "org.eclipse.platform:org.eclipse.equinox.common:3.21.0",
+            "org.eclipse.platform:org.eclipse.equinox.preferences:3.12.100",
+            "org.eclipse.platform:org.eclipse.equinox.registry:3.12.600",
+            "org.eclipse.platform:org.eclipse.osgi:3.24.300",
+            "org.eclipse.platform:org.eclipse.text:3.14.800",
+            "org.osgi:org.osgi.service.prefs:1.1.2",
+            "org.osgi:osgi.annotation:8.0.1",
+        ],
+        prefixes=["org.eclipse.", "org.osgi."],
+        aot=False,
+        references=["ecj"],
     ),
 ]
 
@@ -151,12 +181,14 @@ def ikvmc(bundles: list[Bundle]) -> None:
         print(f"[ikvmc] missing {ikvmc_sh}", file=sys.stderr)
         sys.exit(1)
 
+    by_name = {b.name: b for b in BUNDLES}
     for bundle in bundles:
         out_path = REPO_ROOT / bundle.output_dir / bundle.output_dll
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
+        reference_args = [arg for ref in bundle.references for arg in ("-r", str(REPO_ROOT / by_name[ref].output_dir / by_name[ref].output_dll))]
         input_paths = [str(unsigned(parse_jar_ref(ref).local_path)) for ref in bundle.jars]
-        cmd = ["bash", str(ikvmc_sh), str(out_path), *input_paths]
+        cmd = ["bash", str(ikvmc_sh), str(out_path), *reference_args, *input_paths]
         print(f"[ikvmc] {bundle.name}: {' '.join(cmd)}")
         subprocess.run(cmd, check=True, cwd=REPO_ROOT)
 

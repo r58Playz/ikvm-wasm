@@ -37,7 +37,7 @@ internal static class ExceptionLogging
 
             foreach (var frame in ikvm.extensions.ExtensionMethods.getStackTrace(current))
             {
-                if (userFramesOnly && IsLauncherFrame(frame.getClassName()))
+                if (userFramesOnly && IsLauncherFrame(frame))
                     continue;
                 Console.Error.WriteLine($"\tat {frame}");
             }
@@ -47,11 +47,17 @@ internal static class ExceptionLogging
         }
     }
 
-    private static bool IsLauncherFrame(string className) =>
-        className.StartsWith("cli.", StringComparison.Ordinal) ||
-        className.StartsWith("System.", StringComparison.Ordinal) ||
-        className.StartsWith("java.lang.reflect.", StringComparison.Ordinal) ||
-        className.StartsWith("jdk.internal.reflect.", StringComparison.Ordinal);
+    private static bool IsLauncherFrame(StackTraceElement frame)
+    {
+        var className = frame.getClassName();
+        return className.StartsWith("cli.", StringComparison.Ordinal) ||
+            className.StartsWith("System.", StringComparison.Ordinal) ||
+            className.StartsWith("IKVM.", StringComparison.Ordinal) ||
+            className.StartsWith("java.lang.reflect.", StringComparison.Ordinal) ||
+            className.StartsWith("jdk.internal.reflect.", StringComparison.Ordinal) ||
+            // the program's thread starting
+            (className == "java.lang.Thread" && frame.getMethodName() == "run");
+    }
 
     private static Throwable FindJavaThrowable(System.Exception ex)
     {

@@ -126,7 +126,7 @@ internal static class JavaCompiler {
 	// ecj opens java.home's modules with FileSystems.newFileSystem(jrt:/, {java.home}), which, as on a stock JDK, loads
 	// the jrt provider from <java.home>/lib/jrt-fs.jar. IKVM has no such jar, but its own jrt:/ is java.home's, and
 	// ecj looks in its cache of file systems by java.home first.
-	private static readonly Lazy<bool> JrtSeeded = new(() =>
+	internal static readonly Lazy<bool> JrtSeeded = new(() =>
 	{
 		var field = ikvm.runtime.Util.getClassFromTypeHandle(typeof(JRTUtil).TypeHandle).getDeclaredField("JRT_FILE_SYSTEMS");
 		field.setAccessible(true);
@@ -138,7 +138,7 @@ internal static class JavaCompiler {
 		return true;
 	});
 
-	private static readonly string Release = Math.Min(java.lang.Runtime.version().feature(), 26).ToString();
+	internal static readonly string Release = Math.Min(java.lang.Runtime.version().feature(), 26).ToString();
 
 	public static Result CompileJavaSource(Dictionary<string, string> sources) {
 		_ = JrtSeeded.Value;

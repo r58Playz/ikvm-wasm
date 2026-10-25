@@ -53,6 +53,12 @@ int mount_fetch_file(int id, char *path) {
 	return ret;
 }
 
+// writes out the last line of stdout and stderr when it has no newline: wasmfs holds a line until it ends
+void flush_std_streams(void) {
+	fsync(STDOUT_FILENO);
+	fsync(STDERR_FILENO);
+}
+
 void mono_threads_request_thread_dump (void);
 EMSCRIPTEN_KEEPALIVE void perform_thread_dump() {
 	mono_threads_request_thread_dump();

@@ -184,16 +184,29 @@ internal sealed class IkvmClassLoader : java.net.URLClassLoader, ikvm.lang.LinkT
 
 			if (!fastpath && cls is null)
 			{
+				// bundles can split a package (ecj and jdt core both have org.eclipse.jdt.internal.compiler), so a
+				// class missing from the first bundle with its prefix may be in a later one
+				java.lang.ClassNotFoundException miss = null;
 				foreach (var (assemblyName, prefixes, loader) in dllLoaders)
 				{
 					if (!prefixes.Any(x => name.StartsWith(x, StringComparison.Ordinal)))
 						continue;
 
+					try
+					{
+						cls = loader.loadClass(name);
+					}
+					catch (java.lang.ClassNotFoundException e)
+					{
+						miss = e;
+						continue;
+					}
 					loadedFrom = $"assembly {assemblyName}";
-					cls = loader.loadClass(name);
 					fastpath = true;
 					break;
 				}
+				if (cls is null && miss is not null)
+					throw miss;
 			}
 
 			if (!fastpath && cls is null)

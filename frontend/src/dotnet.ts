@@ -6,6 +6,9 @@ let runtime: RuntimeAPI;
 let config: MonoConfig;
 let exports: any;
 let warmup: Promise<void>;
+let initialized: () => void;
+// when the editor's language features can be asked for
+const ready = new Promise<void>((resolve) => (initialized = resolve));
 // when the last of the split downloads finished
 let downloaded = 0;
 
@@ -175,6 +178,54 @@ export async function initDotnet() {
 
 	// load and jit the compiler in the background. failures are logged by the runtime, and runJava will report its own
 	warmup = exports.IkvmWasm.Warmup().catch(() => {});
+	// then jdt's language features, which queue behind it
+	exports.IkvmWasm.WarmupLanguage().catch(() => {});
+	initialized();
+}
+
+async function language<T>(name: string, call: () => Promise<string>): Promise<T | null> {
+	await ready;
+	let start = performance.now();
+	let result = JSON.parse(await call());
+	bypassDebug(`[jdt] ${name} ${(performance.now() - start).toFixed(0)}ms (jdt ${result?.ms?.toFixed(0)}ms)`);
+	return result;
+}
+
+export type Problem = { severity: "error" | "warning" | "info"; message: string; start: number; end: number; id: number };
+export type HoverInfo = { start: number; end: number; signature: string; doc?: string };
+export type CompletionItem = {
+	label: string;
+	kind: string;
+	detail?: string;
+	insert: string;
+	filter: string;
+	snippet?: boolean;
+	start: number;
+	end: number;
+	relevance: number;
+	import?: string;
+	importAt?: number;
+};
+
+const entries = (sources: Map<string, string>) => [...sources.entries()];
+
+export async function diagnose(sources: Map<string, string>, file: string): Promise<Problem[]> {
+	return (await language<{ problems: Problem[] }>("diagnose", () => exports.IkvmWasm.Diagnose(entries(sources), file)))?.problems || [];
+}
+
+export async function hover(sources: Map<string, string>, file: string, offset: number): Promise<HoverInfo | null> {
+	return await language<HoverInfo>("hover", () => exports.IkvmWasm.Hover(entries(sources), file, offset));
+}
+
+export async function complete(sources: Map<string, string>, file: string, offset: number): Promise<CompletionItem[]> {
+	return (await language<{ items: CompletionItem[] }>("complete", () => exports.IkvmWasm.Complete(entries(sources), file, offset)))?.items || [];
+}
+
+export type FormatEdit = { start: number; end: number; text: string };
+
+// all of it, or the lines a range touches
+export async function format(source: string, range: { start: number; end: number } | null, tabSize: number, insertSpaces: boolean): Promise<FormatEdit[]> {
+	return (await language<{ edits: FormatEdit[] }>("format", () => exports.IkvmWasm.Format(source, range?.start ?? -1, range?.end ?? -1, tabSize, insertSpaces)))?.edits || [];
 }
 
 export async function runJava(source: Map<string, string>) {
