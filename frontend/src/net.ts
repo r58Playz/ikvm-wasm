@@ -226,7 +226,7 @@ export class EpxTcpWs extends EventTarget {
 
 		this.reader?.cancel().then(undefined, (err) => console.log("cancel failed", err));
 		this.ws?.close().then(
-			(x) => {/*console.log("really closed", x)*/},
+			(_) => {/*console.log("really closed", x)*/},
 			(err) => console.log("close failed", err)
 		);
 
