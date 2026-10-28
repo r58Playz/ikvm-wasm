@@ -792,6 +792,6 @@ internal static class JavaLanguage
 		var indexed = sw.ElapsedMilliseconds;
 		Complete(sources, "Warmup.java", WarmupSource.IndexOf("ArrayL", StringComparison.Ordinal) + "ArrayL".Length);
 		var types = sw.ElapsedMilliseconds;
-		Console.WriteLine($"[jdt warmup] init {initialized}ms, parse {parsed - initialized}ms, hover {hovered - parsed}ms, complete members {members - hovered}ms, index {environment.Types.Count} types {indexed - members}ms, complete types {types - indexed}ms");
+		Emscripten.ConsoleDebug($"[jdt warmup] init {initialized}ms, parse {parsed - initialized}ms, hover {hovered - parsed}ms, complete members {members - hovered}ms, index {environment.Types.Count} types {indexed - members}ms, complete types {types - indexed}ms");
 	}
 }

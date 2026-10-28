@@ -281,6 +281,6 @@ internal static class JavaCompiler {
 		}
 
 		LaunchMain(java.lang.Class.forName(result.MainClass, true, result.ClassLoader), []);
-		Console.WriteLine($"[warmup] jrt:/ {seeded}ms, compile {compiled - seeded}ms, run {sw.ElapsedMilliseconds - compiled}ms");
+		Emscripten.ConsoleDebug($"[warmup] jrt:/ {seeded}ms, compile {compiled - seeded}ms, run {sw.ElapsedMilliseconds - compiled}ms");
 	}
 }

@@ -5,6 +5,9 @@ using System.Runtime.CompilerServices;
 
 public static class Emscripten
 {
+    [DllImport("Emscripten", EntryPoint = "classloader_debug")]
+    public static extern void ConsoleDebug([MarshalAs(UnmanagedType.LPUTF8Str)] string log);
+
     [DllImport("Emscripten")]
     private static extern void install_thread_log_forwarder();
     public static void InstallThreadLogForwarder() => install_thread_log_forwarder();
