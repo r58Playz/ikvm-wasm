@@ -94,6 +94,10 @@ static partial class IkvmWasm
 			Console.WriteLine($"-D{prop[0]}={prop[1]}");
 			java.lang.System.setProperty(prop[0], prop[1]);
 		}
+
+		IkvmNetworkInterfaces.Install();
+		IkvmNameService.Install();
+		IkvmSocketService.Install();
 	}
 
 	[JSExport]

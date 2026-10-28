@@ -1,4 +1,5 @@
 import type { ModuleAPI, MonoConfig, RuntimeAPI } from "./dotnetdefs";
+import { EpxTcpWs } from "./net";
 
 const wasm: ModuleAPI = await eval(`import("/_framework/dotnet.js")`);
 const dotnet = wasm.dotnet;
@@ -92,6 +93,14 @@ async function resourceLoader(defaultUri: string, contentType: string) {
 export async function initDotnet() {
 	// emscripten proxy hackfix number 39847232303
 	(globalThis as any).Atomics.waitAsync = undefined;
+
+	globalThis.WebSocket = new Proxy(WebSocket, {
+		construct(target, args, newTarget) {
+			const url = new URL(args[0]);
+			if (url.hostname.startsWith("wisp-")) return new EpxTcpWs(url);
+			return Reflect.construct(target, args, newTarget);
+		},
+	});
 
 	console.time("dotnet ");
 	let start = performance.now();

@@ -1,8 +1,28 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import basicSsl from "@vitejs/plugin-basic-ssl";
+import { server as wisp, logging as wispLogging } from "@mercuryworkshop/wisp-js/server";
+
+wispLogging.set_level(wispLogging.WARN);
+
+function localWisp(): Plugin {
+	const attach = (httpServer: ViteDevServer["httpServer"]) => {
+		httpServer?.on("upgrade", (req, socket, head) => {
+			if (req.url?.startsWith("/wisp/")) wisp.routeRequest(req, socket, head);
+		});
+	};
+	return {
+		name: "local-wisp",
+		configureServer(server) {
+			attach(server.httpServer);
+		},
+		configurePreviewServer(server) {
+			attach(server.httpServer);
+		},
+	};
+}
 
 export default defineConfig({
-	plugins: [basicSsl()],
+	plugins: [basicSsl(), localWisp()],
 	build: {
 		target: "es2022",
 		rollupOptions: {
